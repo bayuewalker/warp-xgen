@@ -170,7 +170,7 @@ export function SignedOutHero() {
             <div className="flex gap-4 justify-center">
               <a href="#" className="hover:text-[#00f0ff] transition-colors">Privacy</a>
               <a href="#" className="hover:text-[#00f0ff] transition-colors">Terms</a>
-              <GitHubLink size="sm" variant="ghost" className="text-xs text-gray-600 hover:text-[#00f0ff]">GitHub</GitHubLink>
+              <GitHubLink size="sm" variant="ghost">GitHub</GitHubLink>
             </div>
           </div>
         </div>
