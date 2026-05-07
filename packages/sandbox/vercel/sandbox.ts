@@ -521,31 +521,35 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
     // Calculate SDK timeout with buffer for beforeStop hook.
     const sdkTimeout = effectiveTimeout + TIMEOUT_BUFFER_MS;
 
-    const createBaseConfig = {
+    // Shared config fields valid for all sandbox source types.
+    const createSharedConfig = {
       ...(name ? { name } : {}),
       resources: { vcpus },
       timeout: sdkTimeout,
-      runtime,
       persistent,
       networkPolicy: buildGitHubCredentialBrokeringPolicy(githubToken),
       ...(ports && { ports }),
       ...(snapshotExpiration !== undefined && { snapshotExpiration }),
     };
 
+    // The SDK type Omit<BaseCreateSandboxParams, "runtime" | "source"> for
+    // snapshot sources means `runtime` must not be sent — the snapshot carries
+    // its own runtime and the Vercel API returns 400 if runtime is present.
     let sdk: VercelSandboxSDK;
     if (restoreSnapshotId) {
       sdk = await VercelSandboxSDK.create({
-        ...createBaseConfig,
+        ...createSharedConfig,
         source: { type: "snapshot", snapshotId: restoreSnapshotId },
       });
     } else if (baseSnapshotId) {
       sdk = await VercelSandboxSDK.create({
-        ...createBaseConfig,
+        ...createSharedConfig,
         source: { type: "snapshot", snapshotId: baseSnapshotId },
       });
     } else if (source) {
       sdk = await VercelSandboxSDK.create({
-        ...createBaseConfig,
+        ...createSharedConfig,
+        runtime,
         source: {
           type: "git",
           url: source.url,
@@ -553,7 +557,7 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
         },
       });
     } else {
-      sdk = await VercelSandboxSDK.create(createBaseConfig);
+      sdk = await VercelSandboxSDK.create({ ...createSharedConfig, runtime });
     }
 
     const workingDirectory = DEFAULT_WORKING_DIRECTORY;
