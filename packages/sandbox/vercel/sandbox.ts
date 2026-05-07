@@ -535,15 +535,24 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
     // The SDK type Omit<BaseCreateSandboxParams, "runtime" | "source"> for
     // snapshot sources means `runtime` must not be sent — the snapshot carries
     // its own runtime and the Vercel API returns 400 if runtime is present.
-    function logSdkCreateError(err: unknown, context: string): void {
+
+    // Wraps an SDK APIError so its full response body appears in the thrown
+    // error message — which the workflow runner logs without truncation.
+    // The console.error call ensures it also shows up at the function level.
+    function wrapSdkCreateError(err: unknown, context: string): Error {
       if (err && typeof err === "object" && "text" in err) {
         const e = err as { text?: unknown; json?: unknown; message?: string };
-        console.error(
-          `[VercelSandbox] create failed (${context}) — API body:`,
-          e.text,
-          e.json,
-        );
+        const body =
+          typeof e.text === "string" && e.text.length > 0
+            ? e.text
+            : JSON.stringify(e.json ?? {});
+        const msg = `[VercelSandbox] create failed (${context}) — API 400 body: ${body}`;
+        console.error(msg);
+        const wrapped = new Error(msg);
+        if (err instanceof Error) wrapped.stack = err.stack;
+        return wrapped;
       }
+      return err instanceof Error ? err : new Error(String(err));
     }
 
     let sdk: VercelSandboxSDK;
@@ -554,8 +563,7 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
           source: { type: "snapshot", snapshotId: restoreSnapshotId },
         });
       } catch (err) {
-        logSdkCreateError(err, `restoreSnapshotId=${restoreSnapshotId}`);
-        throw err;
+        throw wrapSdkCreateError(err, `restoreSnapshotId=${restoreSnapshotId}`);
       }
     } else if (baseSnapshotId) {
       try {
@@ -564,8 +572,7 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
           source: { type: "snapshot", snapshotId: baseSnapshotId },
         });
       } catch (err) {
-        logSdkCreateError(err, `baseSnapshotId=${baseSnapshotId}`);
-        throw err;
+        throw wrapSdkCreateError(err, `baseSnapshotId=${baseSnapshotId}`);
       }
     } else if (source) {
       sdk = await VercelSandboxSDK.create({
