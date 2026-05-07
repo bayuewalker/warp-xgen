@@ -241,8 +241,10 @@ export async function resolveChatSandboxRuntime(params: {
   let sandbox: Sandbox;
   // DEBUG: Intercept global fetch to capture Vercel Sandbox API request/response
   const originalFetch = globalThis.fetch;
-  let lastVercelRequest: { url: string; method: string; body?: string } | null = null;
-  let lastVercelResponse: { status: number; body: string } | null = null;
+  type VercelReq = { url: string; method: string; body?: string };
+  type VercelResp = { status: number; body: string };
+  let lastVercelRequest: VercelReq | null = null;
+  let lastVercelResponse: VercelResp | null = null;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const isVercel = url.includes("vercel.com") || url.includes("vercel.app/api");
