@@ -280,30 +280,8 @@ function withModelMetadata(
 }
 
 function getSetupErrorMessage(error: unknown): string {
-  // DEBUG: Log full error for diagnostics (visible in Vercel Runtime Logs)
-  console.error("[chat-workflow] Setup failed:", error);
-
-  // Walk the cause chain to find the deepest underlying error
-  const chain: Array<{ name: string; message: string }> = [];
-  let cur: unknown = error;
-  let depth = 0;
-  while (cur && depth < 10) {
-    if (cur instanceof Error) {
-      chain.push({ name: cur.name, message: cur.message });
-      cur = (cur as Error & { cause?: unknown }).cause;
-    } else {
-      chain.push({ name: "non-error", message: String(cur) });
-      break;
-    }
-    depth++;
-  }
-  console.error("[chat-workflow] Cause chain:", chain);
-  if (error instanceof Error && error.stack) {
-    console.error("[chat-workflow] Stack:", error.stack);
-  }
-
   if (!(error instanceof Error)) {
-    return `Workspace setup failed: ${String(error)}`;
+    return "Workspace setup failed. Try again in a moment.";
   }
 
   if (error.message.includes("Connect GitHub")) {
@@ -314,12 +292,7 @@ function getSetupErrorMessage(error: unknown): string {
     return "This session is archived. Unarchive it to continue.";
   }
 
-  // DEBUG: Surface the FULL cause chain to the UI so we can diagnose
-  // without needing log-drain access. Remove this after the bug is fixed.
-  const formatted = chain
-    .map((c, i) => `${i === 0 ? "" : " ← "}${c.name}: ${c.message}`)
-    .join("");
-  return `Workspace setup failed: ${formatted}`;
+  return "Workspace setup failed. Try again in a moment.";
 }
 
 function isStepTimingError(

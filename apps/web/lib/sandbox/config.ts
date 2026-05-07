@@ -6,9 +6,10 @@
 /** SDK safety buffer reserved for sandbox before-stop hooks (30 seconds) */
 const VERCEL_SANDBOX_TIMEOUT_BUFFER_MS = 30 * 1000;
 
-/** Default timeout for new cloud sandboxes (5 hours minus hook buffer) */
+/** Default timeout for new cloud sandboxes (45 minutes minus hook buffer).
+ * Vercel Sandbox API enforces a max of 2,700,000 ms (45 min) on this plan. */
 export const DEFAULT_SANDBOX_TIMEOUT_MS =
-  5 * 60 * 60 * 1000 - VERCEL_SANDBOX_TIMEOUT_BUFFER_MS;
+  45 * 60 * 1000 - VERCEL_SANDBOX_TIMEOUT_BUFFER_MS;
 
 /** Manual extension duration for explicit fallback flows (20 minutes) */
 export const EXTEND_TIMEOUT_DURATION_MS = 20 * 60 * 1000;

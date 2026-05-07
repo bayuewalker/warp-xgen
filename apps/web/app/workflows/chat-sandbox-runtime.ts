@@ -205,10 +205,7 @@ export async function resolveChatSandboxRuntime(params: {
     });
   }
 
-  const gitUser = await getGitUser(params.userId).catch((e) => {
-    console.error("[debug] getGitUser failed:", e);
-    throw new Error(`getGitUser failed: ${e?.name}: ${e?.message}`, { cause: e });
-  });
+  const gitUser = await getGitUser(params.userId);
   let setupToken: ScopedInstallationToken | undefined;
 
   if (session.cloneUrl) {
@@ -220,9 +217,6 @@ export async function resolveChatSandboxRuntime(params: {
       userId: params.userId,
       owner: session.repoOwner,
       repo: session.repoName,
-    }).catch((e) => {
-      console.error("[debug] verifyRepoAccess failed:", e);
-      throw new Error(`verifyRepoAccess failed: ${e?.name}: ${e?.message}`, { cause: e });
     });
     if (!access.ok) {
       throw new Error(getRepoAccessErrorMessage(access.reason));
@@ -232,49 +226,11 @@ export async function resolveChatSandboxRuntime(params: {
       installationId: access.installationId,
       repositoryIds: [access.repositoryId],
       permissions: { contents: "read" },
-    }).catch((e) => {
-      console.error("[debug] mintInstallationToken failed:", e);
-      throw new Error(`mintInstallationToken failed: ${e?.name}: ${e?.message}`, { cause: e });
     });
   }
 
   let sandbox: Sandbox;
-  // DEBUG: Intercept global fetch to capture Vercel Sandbox API request/response
-  const originalFetch = globalThis.fetch;
-  const debugCapture: {
-    request: { url: string; method: string; body?: string } | undefined;
-    response: { status: number; body: string } | undefined;
-  } = { request: undefined, response: undefined };
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-    const isVercel = url.includes("vercel.com") || url.includes("vercel.app/api");
-    if (isVercel) {
-      debugCapture.request = {
-        url,
-        method: init?.method || (typeof input !== "string" && !(input instanceof URL) ? input.method : "GET"),
-        body: typeof init?.body === "string" ? init.body.slice(0, 2000) : undefined,
-      };
-    }
-    const resp = await originalFetch(input, init);
-    if (isVercel && !resp.ok) {
-      const cloned = resp.clone();
-      const body = await cloned.text().catch(() => "<unreadable>");
-      debugCapture.response = { status: resp.status, body: body.slice(0, 2000) };
-      console.error("[debug] vercel api error response:", { url, status: resp.status, body: body.slice(0, 2000) });
-    }
-    return resp;
-  }) as typeof fetch;
-
   try {
-    console.log("[debug] connectSandbox starting", {
-      hasGithubToken: !!setupToken?.token,
-      baseSnapshotId: DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
-      hasSource: !!buildSandboxSource(session),
-      hasVercelToken: !!process.env.VERCEL_ACCESS_TOKEN,
-      hasVercelTeamId: !!process.env.VERCEL_TEAM_ID,
-      hasVercelProjectId: !!process.env.VERCEL_PROJECT_ID,
-      hasVercelOidcToken: !!process.env.VERCEL_OIDC_TOKEN,
-    });
     sandbox = await connectSandbox({
       state: buildSandboxState(session),
       options: {
@@ -288,30 +244,7 @@ export async function resolveChatSandboxRuntime(params: {
         createIfMissing: true,
       },
     });
-  } catch (e) {
-    const err = e as Error & { response?: unknown; body?: unknown; status?: number; statusCode?: number };
-    console.error("[debug] connectSandbox failed:", err);
-    console.error("[debug] connectSandbox error props:", {
-      name: err?.name,
-      message: err?.message,
-      status: err?.status,
-      statusCode: err?.statusCode,
-      response: err?.response,
-      body: err?.body,
-      cause: err?.cause,
-      stack: err?.stack,
-    });
-    console.error("[debug] last vercel api request:", debugCapture.request);
-    console.error("[debug] last vercel api error response:", debugCapture.response);
-    const reqInfo = debugCapture.request
-      ? ` | req=${debugCapture.request.method} ${debugCapture.request.url.replace(/^https?:\/\/[^/]+/, "")}`
-      : "";
-    const respInfo = debugCapture.response
-      ? ` | resp=${debugCapture.response.status}: ${debugCapture.response.body}`
-      : "";
-    throw new Error(`connectSandbox failed: ${err?.name}: ${err?.message}${reqInfo}${respInfo}`, { cause: e });
   } finally {
-    globalThis.fetch = originalFetch;
     if (setupToken) {
       await revokeInstallationToken(setupToken.token);
     }
