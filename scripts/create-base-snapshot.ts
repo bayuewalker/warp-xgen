@@ -1,14 +1,11 @@
 /**
- * create-base-snapshot.ts — v2
+ * create-base-snapshot.ts — v3
  *
- * KEY CHANGES from v1 (which produced snapshots that gave 400 at runtime):
- *   1. persistent: true                — matches what resolveChatSandboxRuntime expects.
- *   2. NO explicit `runtime` parameter — let SDK default to node24 and let snapshot
- *      carry runtime metadata. Avoids "runtime + snapshot source" conflict at API.
- *   3. ports + resources match production runtime config exactly
- *      (apps/web/lib/sandbox/config.ts → DEFAULT_SANDBOX_PORTS).
- *   4. snapshotExpiration: 0           — snapshot never expires.
- *   5. Manual snapshot() with expiration: 0 to ensure long-lived base.
+ * KEY CHANGES:
+ *   v1 → v2: persistent: true, snapshotExpiration: 0, ports match production.
+ *   v2 → v3: EXPLICIT runtime: "node24" — @vercel/sandbox@beta defaults to
+ *            node22, but the open-agents production runtime expects node24.
+ *            Mismatch caused API to return 404 ("no matching sandbox image").
  *
  * Required env vars (provided by GitHub Actions secrets):
  *   VERCEL_TOKEN
@@ -77,12 +74,12 @@ async function main(): Promise<void> {
   console.log(`Mode:     persistent: true (matches runtime expectation)`);
   console.log("");
 
-  console.log("→ Creating fresh sandbox (persistent: true, no source)...");
+  console.log("→ Creating fresh sandbox (persistent: true, runtime: node24)...");
   const sandbox = await Sandbox.create({
     teamId,
     projectId,
     token,
-    // No runtime — let SDK default to node24 and snapshot inherit cleanly
+    runtime: "node24",
     timeout: SANDBOX_TIMEOUT_MS,
     resources: { vcpus: 4 },
     ports: DEFAULT_PORTS,
