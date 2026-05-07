@@ -1,25 +1,36 @@
 /**
- * create-base-snapshot.ts
+ * create-base-snapshot.ts — v2
  *
- * Creates a fresh Vercel Sandbox from the default node24 image (no parent
- * snapshot), installs the minimum tools that open-agents/warp-xgen expects
- * (bun + jq), optionally adds chromium + agent-browser, then snapshots it.
+ * KEY CHANGES from v1 (which produced snapshots that gave 400 at runtime):
+ *   1. persistent: true                — matches what resolveChatSandboxRuntime expects.
+ *   2. NO explicit `runtime` parameter — let SDK default to node24 and let snapshot
+ *      carry runtime metadata. Avoids "runtime + snapshot source" conflict at API.
+ *   3. ports + resources match production runtime config exactly
+ *      (apps/web/lib/sandbox/config.ts → DEFAULT_SANDBOX_PORTS).
+ *   4. snapshotExpiration: 0           — snapshot never expires.
+ *   5. Manual snapshot() with expiration: 0 to ensure long-lived base.
  *
- * Designed to be run inside GitHub Actions with these env vars:
+ * Required env vars (provided by GitHub Actions secrets):
  *   VERCEL_TOKEN
  *   VERCEL_TEAM_ID
  *   VERCEL_PROJECT_ID
- *   INCLUDE_CHROMIUM  (optional, "true" to install chromium + agent-browser)
+ *   INCLUDE_CHROMIUM   (optional, "true" to install chromium + agent-browser)
  *
- * Output:
- *   Prints "SNAPSHOT_ID=snap_xxxxx" on success — the workflow extracts that.
+ * Output (parsed by workflow):
+ *   SNAPSHOT_ID=snap_xxxxx
  */
 
 import { Sandbox } from "@vercel/sandbox";
 
 const MS_PER_MINUTE = 60 * 1000;
 const SANDBOX_TIMEOUT_MS = 25 * MS_PER_MINUTE;
-const COMMAND_TIMEOUT_MS = 10 * MS_PER_MINUTE;
+
+// Match apps/web/lib/sandbox/config.ts → DEFAULT_SANDBOX_PORTS
+// 3000: Next.js / Express / Remix
+// 5173: Vite / SvelteKit
+// 4321: Astro
+// 8000: code-server (built-in editor)
+const DEFAULT_PORTS = [3000, 5173, 4321, 8000];
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -54,29 +65,31 @@ async function runStep(
 }
 
 async function main(): Promise<void> {
-  // Validate auth env early
   const token = requireEnv("VERCEL_TOKEN");
   const teamId = requireEnv("VERCEL_TEAM_ID");
   const projectId = requireEnv("VERCEL_PROJECT_ID");
   const includeChromium = process.env.INCLUDE_CHROMIUM === "true";
 
-  console.log("=== warp-xgen base snapshot generator ===");
-  console.log(`Team:    ${teamId}`);
-  console.log(`Project: ${projectId}`);
+  console.log("=== warp-xgen base snapshot generator (v2) ===");
+  console.log(`Team:     ${teamId}`);
+  console.log(`Project:  ${projectId}`);
   console.log(`Chromium: ${includeChromium ? "yes" : "no (minimal snapshot)"}`);
+  console.log(`Mode:     persistent: true (matches runtime expectation)`);
   console.log("");
 
-  console.log("→ Creating fresh sandbox (no parent snapshot)...");
+  console.log("→ Creating fresh sandbox (persistent: true, no source)...");
   const sandbox = await Sandbox.create({
     teamId,
     projectId,
     token,
-    runtime: "node24",
+    // No runtime — let SDK default to node24 and snapshot inherit cleanly
     timeout: SANDBOX_TIMEOUT_MS,
     resources: { vcpus: 4 },
-    persistent: false,
+    ports: DEFAULT_PORTS,
+    persistent: true,
+    snapshotExpiration: 0,
   });
-  console.log(`✓ Sandbox created`);
+  console.log(`✓ Sandbox created (runtime: ${sandbox.runtime ?? "default"})`);
 
   let snapshotId: string | undefined;
 
@@ -89,7 +102,7 @@ async function main(): Promise<void> {
       ["dnf", "makecache", "--refresh"],
     );
 
-    // jq — required by open-agents skills metadata cache and shell utils
+    // jq — required by open-agents shell utils & skill metadata
     await runStep(
       sandbox,
       "Install jq",
@@ -97,7 +110,7 @@ async function main(): Promise<void> {
       ["dnf", "install", "-y", "jq"],
     );
 
-    // bun — primary package manager for open-agents app code that runs in sandbox
+    // bun — primary package manager inside sandboxes
     await runStep(
       sandbox,
       "Install bun",
@@ -108,7 +121,7 @@ async function main(): Promise<void> {
       ],
     );
 
-    // Optional: chromium + agent-browser (only if user opted in — significantly slower)
+    // Optional: chromium + agent-browser for sessions that need browser automation
     if (includeChromium) {
       await runStep(
         sandbox,
@@ -137,19 +150,18 @@ async function main(): Promise<void> {
       );
     }
 
-    console.log("\n→ Capturing snapshot...");
-    const snapshot = await sandbox.snapshot();
+    console.log("\n→ Capturing snapshot (no expiration)...");
+    const snapshot = await sandbox.snapshot({ expiration: 0 });
     snapshotId = snapshot.snapshotId;
     console.log(`✓ Snapshot captured`);
   } finally {
-    // Always stop the sandbox — even if something failed earlier
     try {
       console.log("\n→ Stopping sandbox...");
       await sandbox.stop();
       console.log("✓ Sandbox stopped");
     } catch (stopError) {
       console.warn(
-        `⚠ Failed to stop sandbox cleanly: ${
+        `⚠ Failed to stop sandbox cleanly (this is usually fine after snapshot): ${
           stopError instanceof Error ? stopError.message : String(stopError)
         }`,
       );
@@ -160,15 +172,13 @@ async function main(): Promise<void> {
     throw new Error("Snapshot creation failed — no snapshot ID returned.");
   }
 
-  // Sentinel line that the workflow grep parses out
   console.log("");
   console.log("=== SUCCESS ===");
   console.log(`SNAPSHOT_ID=${snapshotId}`);
   console.log("");
   console.log("Next steps:");
-  console.log("  1. Add to Vercel env:");
-  console.log(`       VERCEL_SANDBOX_BASE_SNAPSHOT_ID=${snapshotId}`);
-  console.log("  2. Redeploy production (uncheck 'Use existing Build Cache')");
+  console.log(`  1. Vercel env: VERCEL_SANDBOX_BASE_SNAPSHOT_ID=${snapshotId}`);
+  console.log("  2. Redeploy production WITHOUT build cache");
   console.log("  3. Test session creation");
 }
 
