@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -40,17 +40,23 @@ jobs:
         run: |
           cp scripts/create-base-snapshot.ts /tmp/snapshot-tool/
           cd /tmp/snapshot-tool
-          bun run create-base-snapshot.ts | tee snapshot-output.log
+          set -o pipefail
+          bun run create-base-snapshot.ts 2>&1 | tee snapshot-output.log
 
       - name: Extract snapshot ID
         id: extract
+        if: always()
         run: |
-          SNAPSHOT_ID=$(grep -oP 'SNAPSHOT_ID=\K[^ ]+' /tmp/snapshot-tool/snapshot-output.log | head -1)
-          if [ -z "$SNAPSHOT_ID" ]; then
-            echo "::error::Snapshot ID not found in output"
+          if [ ! -f /tmp/snapshot-tool/snapshot-output.log ]; then
+            echo "::error::Snapshot output log missing — generation step failed before logging."
             exit 1
           fi
-          echo "snapshot_id=$SNAPSHOT_ID" >> $GITHUB_OUTPUT
+          SNAPSHOT_ID=$(grep -oE 'SNAPSHOT_ID=snap_[A-Za-z0-9]+' /tmp/snapshot-tool/snapshot-output.log | head -1 | cut -d= -f2)
+          if [ -z "$SNAPSHOT_ID" ]; then
+            echo "::error::Snapshot ID not found in output. Check the 'Generate base snapshot' step logs above."
+            exit 1
+          fi
+          echo "snapshot_id=$SNAPSHOT_ID" >> "$GITHUB_OUTPUT"
           echo "::notice title=New Snapshot Created::$SNAPSHOT_ID"
 
       - name: Job summary
@@ -62,18 +68,22 @@ jobs:
             if [ -n "${{ steps.extract.outputs.snapshot_id }}" ]; then
               echo "✅ **Success**"
               echo ""
-              echo "**New snapshot ID:** \`${{ steps.extract.outputs.snapshot_id }}\`"
+              echo "**New snapshot ID:**"
+              echo ""
+              echo '```'
+              echo "${{ steps.extract.outputs.snapshot_id }}"
+              echo '```'
               echo ""
               echo "### Next steps"
               echo ""
-              echo "1. Go to Vercel project → Settings → Environment Variables"
-              echo "2. Add (or update) variable:"
+              echo "1. Vercel project → Settings → Environment Variables"
+              echo "2. Update (or add) variable:"
               echo "   - Key: \`VERCEL_SANDBOX_BASE_SNAPSHOT_ID\`"
               echo "   - Value: \`${{ steps.extract.outputs.snapshot_id }}\`"
-              echo "   - Environments: Production, Preview, Development"
+              echo "   - Environments: Production, Preview"
               echo "3. Redeploy production (uncheck \"Use existing Build Cache\")"
               echo "4. Test session creation on warp-xgen.vercel.app"
             else
-              echo "❌ **Failed** — check logs above for the actual error message."
+              echo "❌ **Failed** — check the \"Generate base snapshot\" step logs for the actual error."
             fi
-          } >> $GITHUB_STEP_SUMMARY
+          } >> "$GITHUB_STEP_SUMMARY"
