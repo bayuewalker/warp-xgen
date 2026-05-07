@@ -6,11 +6,24 @@ jobs:
   snapshot:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install
-      - name: Create snapshot
-        run: bun run scripts/create-snapshot.ts
+      - name: Create sandbox and snapshot
+        run: |
+          # Create sandbox
+          RESULT=$(curl -s -X POST \
+            "https://api.vercel.com/v1/sandbox?teamId=$VERCEL_TEAM_ID" \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"runtime":"node24"}')
+          echo "Create result: $RESULT"
+          SANDBOX_ID=$(echo $RESULT | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+          echo "Sandbox ID: $SANDBOX_ID"
+          sleep 15
+          # Take snapshot
+          SNAP=$(curl -s -X POST \
+            "https://api.vercel.com/v1/sandbox/$SANDBOX_ID/snapshot?teamId=$VERCEL_TEAM_ID" \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            -H "Content-Type: application/json")
+          echo "Snapshot result: $SNAP"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_TEAM_ID: team_mka3yuagnBml8NSLbVUckQta
