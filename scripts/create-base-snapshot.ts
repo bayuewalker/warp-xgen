@@ -1,17 +1,25 @@
 /**
- * create-base-snapshot.ts — v3
+ * create-base-snapshot.ts — v4
  *
- * KEY CHANGES:
- *   v1 → v2: persistent: true, snapshotExpiration: 0, ports match production.
- *   v2 → v3: EXPLICIT runtime: "node24" — @vercel/sandbox@beta defaults to
- *            node22, but the open-agents production runtime expects node24.
- *            Mismatch caused API to return 404 ("no matching sandbox image").
+ * KEY CHANGE from v3 (which produced node24 snapshots → 400 at runtime):
+ *   runtime: "node22"   — matches UPSTREAM DEFAULT in packages/sandbox/vercel/sandbox.ts
  *
- * Required env vars (provided by GitHub Actions secrets):
- *   VERCEL_TOKEN
- *   VERCEL_TEAM_ID
- *   VERCEL_PROJECT_ID
- *   INCLUDE_CHROMIUM   (optional, "true" to install chromium + agent-browser)
+ * Why this matters:
+ *   The upstream `VercelSandbox.create()` wrapper destructures runtime with default
+ *   `runtime = "node22"`. When session has no `source`, runtime defaults are sent
+ *   alongside `source: { type: "snapshot", snapshotId }` in the API payload.
+ *   API returns 400 if snapshot's runtime != requested runtime.
+ *   Therefore base snapshot MUST be node22 to match upstream default.
+ *
+ * Other settings (kept from v3):
+ *   persistent: true                — matches runtime mode
+ *   snapshotExpiration: 0           — no expiration
+ *   ports: [3000, 5173, 4321, 8000] — match DEFAULT_SANDBOX_PORTS
+ *   resources: { vcpus: 4 }         — match upstream default vcpus
+ *
+ * Required env vars:
+ *   VERCEL_TOKEN, VERCEL_TEAM_ID, VERCEL_PROJECT_ID
+ *   INCLUDE_CHROMIUM (optional)
  *
  * Output (parsed by workflow):
  *   SNAPSHOT_ID=snap_xxxxx
@@ -23,11 +31,12 @@ const MS_PER_MINUTE = 60 * 1000;
 const SANDBOX_TIMEOUT_MS = 25 * MS_PER_MINUTE;
 
 // Match apps/web/lib/sandbox/config.ts → DEFAULT_SANDBOX_PORTS
-// 3000: Next.js / Express / Remix
-// 5173: Vite / SvelteKit
-// 4321: Astro
-// 8000: code-server (built-in editor)
 const DEFAULT_PORTS = [3000, 5173, 4321, 8000];
+
+// MUST match upstream default in packages/sandbox/vercel/sandbox.ts:
+//   const { runtime = "node22", ... } = config;
+// If snapshot.runtime != requested runtime → API returns 400.
+const DEFAULT_RUNTIME = "node22";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -67,26 +76,35 @@ async function main(): Promise<void> {
   const projectId = requireEnv("VERCEL_PROJECT_ID");
   const includeChromium = process.env.INCLUDE_CHROMIUM === "true";
 
-  console.log("=== warp-xgen base snapshot generator (v2) ===");
+  console.log("=== warp-xgen base snapshot generator (v4) ===");
   console.log(`Team:     ${teamId}`);
   console.log(`Project:  ${projectId}`);
+  console.log(`Runtime:  ${DEFAULT_RUNTIME} (matches upstream default)`);
+  console.log(`Mode:     persistent: true`);
   console.log(`Chromium: ${includeChromium ? "yes" : "no (minimal snapshot)"}`);
-  console.log(`Mode:     persistent: true (matches runtime expectation)`);
   console.log("");
 
-  console.log("→ Creating fresh sandbox (persistent: true, runtime: node24)...");
+  console.log(`→ Creating fresh sandbox (persistent: true, runtime: ${DEFAULT_RUNTIME})...`);
   const sandbox = await Sandbox.create({
     teamId,
     projectId,
     token,
-    runtime: "node24",
+    runtime: DEFAULT_RUNTIME,
     timeout: SANDBOX_TIMEOUT_MS,
     resources: { vcpus: 4 },
     ports: DEFAULT_PORTS,
     persistent: true,
     snapshotExpiration: 0,
   });
-  console.log(`✓ Sandbox created (runtime: ${sandbox.runtime ?? "default"})`);
+  console.log(`✓ Sandbox created (runtime: ${sandbox.runtime ?? "unknown"})`);
+
+  // Sanity check — fail fast if runtime did not match
+  if (sandbox.runtime && sandbox.runtime !== DEFAULT_RUNTIME) {
+    throw new Error(
+      `Runtime mismatch: requested "${DEFAULT_RUNTIME}" but got "${sandbox.runtime}". ` +
+      `This snapshot will not be loadable by warp-xgen production runtime.`,
+    );
+  }
 
   let snapshotId: string | undefined;
 
@@ -118,7 +136,7 @@ async function main(): Promise<void> {
       ],
     );
 
-    // Optional: chromium + agent-browser for sessions that need browser automation
+    // Optional: chromium + agent-browser
     if (includeChromium) {
       await runStep(
         sandbox,
@@ -172,6 +190,7 @@ async function main(): Promise<void> {
   console.log("");
   console.log("=== SUCCESS ===");
   console.log(`SNAPSHOT_ID=${snapshotId}`);
+  console.log(`RUNTIME=${DEFAULT_RUNTIME}`);
   console.log("");
   console.log("Next steps:");
   console.log(`  1. Vercel env: VERCEL_SANDBOX_BASE_SNAPSHOT_ID=${snapshotId}`);
