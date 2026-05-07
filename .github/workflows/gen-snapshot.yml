@@ -1,29 +1,79 @@
 name: Generate Base Snapshot
+
+# Manual trigger only — tap "Run workflow" from GitHub mobile app
 on:
   workflow_dispatch:
+    inputs:
+      include_chromium:
+        description: "Install chromium + agent-browser (slower, larger snapshot)"
+        type: boolean
+        default: false
 
 jobs:
   snapshot:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
-      - name: Create sandbox and snapshot
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.14"
+
+      - name: Install standalone @vercel/sandbox
         run: |
-          # Create sandbox
-          RESULT=$(curl -s -X POST \
-            "https://api.vercel.com/v1/sandbox?teamId=$VERCEL_TEAM_ID" \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{"runtime":"node24"}')
-          echo "Create result: $RESULT"
-          SANDBOX_ID=$(echo $RESULT | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
-          echo "Sandbox ID: $SANDBOX_ID"
-          sleep 15
-          # Take snapshot
-          SNAP=$(curl -s -X POST \
-            "https://api.vercel.com/v1/sandbox/$SANDBOX_ID/snapshot?teamId=$VERCEL_TEAM_ID" \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            -H "Content-Type: application/json")
-          echo "Snapshot result: $SNAP"
+          mkdir -p /tmp/snapshot-tool
+          cd /tmp/snapshot-tool
+          bun init -y
+          bun add @vercel/sandbox@beta
+          bun add -d @types/node typescript
+
+      - name: Generate base snapshot
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_TEAM_ID: team_mka3yuagnBml8NSLbVUckQta
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          INCLUDE_CHROMIUM: ${{ inputs.include_chromium }}
+        run: |
+          cp scripts/create-base-snapshot.ts /tmp/snapshot-tool/
+          cd /tmp/snapshot-tool
+          bun run create-base-snapshot.ts | tee snapshot-output.log
+
+      - name: Extract snapshot ID
+        id: extract
+        run: |
+          SNAPSHOT_ID=$(grep -oP 'SNAPSHOT_ID=\K[^ ]+' /tmp/snapshot-tool/snapshot-output.log | head -1)
+          if [ -z "$SNAPSHOT_ID" ]; then
+            echo "::error::Snapshot ID not found in output"
+            exit 1
+          fi
+          echo "snapshot_id=$SNAPSHOT_ID" >> $GITHUB_OUTPUT
+          echo "::notice title=New Snapshot Created::$SNAPSHOT_ID"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## Snapshot Generation Result"
+            echo ""
+            if [ -n "${{ steps.extract.outputs.snapshot_id }}" ]; then
+              echo "✅ **Success**"
+              echo ""
+              echo "**New snapshot ID:** \`${{ steps.extract.outputs.snapshot_id }}\`"
+              echo ""
+              echo "### Next steps"
+              echo ""
+              echo "1. Go to Vercel project → Settings → Environment Variables"
+              echo "2. Add (or update) variable:"
+              echo "   - Key: \`VERCEL_SANDBOX_BASE_SNAPSHOT_ID\`"
+              echo "   - Value: \`${{ steps.extract.outputs.snapshot_id }}\`"
+              echo "   - Environments: Production, Preview, Development"
+              echo "3. Redeploy production (uncheck \"Use existing Build Cache\")"
+              echo "4. Test session creation on warp-xgen.vercel.app"
+            else
+              echo "❌ **Failed** — check logs above for the actual error message."
+            fi
+          } >> $GITHUB_STEP_SUMMARY
