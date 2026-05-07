@@ -205,7 +205,10 @@ export async function resolveChatSandboxRuntime(params: {
     });
   }
 
-  const gitUser = await getGitUser(params.userId);
+  const gitUser = await getGitUser(params.userId).catch((e) => {
+    console.error("[debug] getGitUser failed:", e);
+    throw new Error(`getGitUser failed: ${e?.name}: ${e?.message}`, { cause: e });
+  });
   let setupToken: ScopedInstallationToken | undefined;
 
   if (session.cloneUrl) {
@@ -217,6 +220,9 @@ export async function resolveChatSandboxRuntime(params: {
       userId: params.userId,
       owner: session.repoOwner,
       repo: session.repoName,
+    }).catch((e) => {
+      console.error("[debug] verifyRepoAccess failed:", e);
+      throw new Error(`verifyRepoAccess failed: ${e?.name}: ${e?.message}`, { cause: e });
     });
     if (!access.ok) {
       throw new Error(getRepoAccessErrorMessage(access.reason));
@@ -226,11 +232,22 @@ export async function resolveChatSandboxRuntime(params: {
       installationId: access.installationId,
       repositoryIds: [access.repositoryId],
       permissions: { contents: "read" },
+    }).catch((e) => {
+      console.error("[debug] mintInstallationToken failed:", e);
+      throw new Error(`mintInstallationToken failed: ${e?.name}: ${e?.message}`, { cause: e });
     });
   }
 
   let sandbox: Sandbox;
   try {
+    console.log("[debug] connectSandbox starting", {
+      hasGithubToken: !!setupToken?.token,
+      baseSnapshotId: DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
+      hasSource: !!buildSandboxSource(session),
+      hasVercelToken: !!process.env.VERCEL_ACCESS_TOKEN,
+      hasVercelTeamId: !!process.env.VERCEL_TEAM_ID,
+      hasVercelProjectId: !!process.env.VERCEL_PROJECT_ID,
+    });
     sandbox = await connectSandbox({
       state: buildSandboxState(session),
       options: {
@@ -244,6 +261,20 @@ export async function resolveChatSandboxRuntime(params: {
         createIfMissing: true,
       },
     });
+  } catch (e) {
+    const err = e as Error & { response?: unknown; body?: unknown; status?: number; statusCode?: number };
+    console.error("[debug] connectSandbox failed:", err);
+    console.error("[debug] connectSandbox error props:", {
+      name: err?.name,
+      message: err?.message,
+      status: err?.status,
+      statusCode: err?.statusCode,
+      response: err?.response,
+      body: err?.body,
+      cause: err?.cause,
+      stack: err?.stack,
+    });
+    throw new Error(`connectSandbox failed: ${err?.name}: ${err?.message}${err?.cause ? ` | cause: ${(err.cause as Error)?.message ?? String(err.cause)}` : ""}`, { cause: e });
   } finally {
     if (setupToken) {
       await revokeInstallationToken(setupToken.token);
