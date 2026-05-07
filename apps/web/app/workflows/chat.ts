@@ -280,8 +280,14 @@ function withModelMetadata(
 }
 
 function getSetupErrorMessage(error: unknown): string {
+  // DEBUG: Log full error for diagnostics (visible in Vercel Runtime Logs)
+  console.error("[chat-workflow] Setup failed:", error);
+  if (error instanceof Error && error.stack) {
+    console.error("[chat-workflow] Stack:", error.stack);
+  }
+
   if (!(error instanceof Error)) {
-    return "Workspace setup failed. Try again in a moment.";
+    return `Workspace setup failed: ${String(error)}`;
   }
 
   if (error.message.includes("Connect GitHub")) {
@@ -292,7 +298,9 @@ function getSetupErrorMessage(error: unknown): string {
     return "This session is archived. Unarchive it to continue.";
   }
 
-  return "Workspace setup failed. Try again in a moment.";
+  // DEBUG: Surface the real error message to the UI so we can diagnose
+  // without needing log-drain access. Remove this after the bug is fixed.
+  return `Workspace setup failed: ${error.name}: ${error.message}`;
 }
 
 function isStepTimingError(
