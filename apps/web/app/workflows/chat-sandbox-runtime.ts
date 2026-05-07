@@ -239,6 +239,30 @@ export async function resolveChatSandboxRuntime(params: {
   }
 
   let sandbox: Sandbox;
+  // DEBUG: Intercept global fetch to capture Vercel Sandbox API request/response
+  const originalFetch = globalThis.fetch;
+  let lastVercelRequest: { url: string; method: string; body?: string } | null = null;
+  let lastVercelResponse: { status: number; body: string } | null = null;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const isVercel = url.includes("vercel.com") || url.includes("vercel.app/api");
+    if (isVercel) {
+      lastVercelRequest = {
+        url,
+        method: init?.method || (typeof input !== "string" && !(input instanceof URL) ? input.method : "GET"),
+        body: typeof init?.body === "string" ? init.body.slice(0, 2000) : undefined,
+      };
+    }
+    const resp = await originalFetch(input, init);
+    if (isVercel && !resp.ok) {
+      const cloned = resp.clone();
+      const body = await cloned.text().catch(() => "<unreadable>");
+      lastVercelResponse = { status: resp.status, body: body.slice(0, 2000) };
+      console.error("[debug] vercel api error response:", { url, status: resp.status, body: body.slice(0, 2000) });
+    }
+    return resp;
+  }) as typeof fetch;
+
   try {
     console.log("[debug] connectSandbox starting", {
       hasGithubToken: !!setupToken?.token,
@@ -247,6 +271,7 @@ export async function resolveChatSandboxRuntime(params: {
       hasVercelToken: !!process.env.VERCEL_ACCESS_TOKEN,
       hasVercelTeamId: !!process.env.VERCEL_TEAM_ID,
       hasVercelProjectId: !!process.env.VERCEL_PROJECT_ID,
+      hasVercelOidcToken: !!process.env.VERCEL_OIDC_TOKEN,
     });
     sandbox = await connectSandbox({
       state: buildSandboxState(session),
@@ -274,8 +299,17 @@ export async function resolveChatSandboxRuntime(params: {
       cause: err?.cause,
       stack: err?.stack,
     });
-    throw new Error(`connectSandbox failed: ${err?.name}: ${err?.message}${err?.cause ? ` | cause: ${(err.cause as Error)?.message ?? String(err.cause)}` : ""}`, { cause: e });
+    console.error("[debug] last vercel api request:", lastVercelRequest);
+    console.error("[debug] last vercel api error response:", lastVercelResponse);
+    const reqInfo = lastVercelRequest
+      ? ` | req=${lastVercelRequest.method} ${lastVercelRequest.url.replace(/^https?:\/\/[^/]+/, "")}`
+      : "";
+    const respInfo = lastVercelResponse
+      ? ` | resp=${lastVercelResponse.status}: ${lastVercelResponse.body}`
+      : "";
+    throw new Error(`connectSandbox failed: ${err?.name}: ${err?.message}${reqInfo}${respInfo}`, { cause: e });
   } finally {
+    globalThis.fetch = originalFetch;
     if (setupToken) {
       await revokeInstallationToken(setupToken.token);
     }
