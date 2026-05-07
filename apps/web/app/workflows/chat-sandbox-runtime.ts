@@ -241,15 +241,15 @@ export async function resolveChatSandboxRuntime(params: {
   let sandbox: Sandbox;
   // DEBUG: Intercept global fetch to capture Vercel Sandbox API request/response
   const originalFetch = globalThis.fetch;
-  type VercelReq = { url: string; method: string; body?: string };
-  type VercelResp = { status: number; body: string };
-  let lastVercelRequest: VercelReq | null = null;
-  let lastVercelResponse: VercelResp | null = null;
+  const debugCapture: {
+    request: { url: string; method: string; body?: string } | undefined;
+    response: { status: number; body: string } | undefined;
+  } = { request: undefined, response: undefined };
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const isVercel = url.includes("vercel.com") || url.includes("vercel.app/api");
     if (isVercel) {
-      lastVercelRequest = {
+      debugCapture.request = {
         url,
         method: init?.method || (typeof input !== "string" && !(input instanceof URL) ? input.method : "GET"),
         body: typeof init?.body === "string" ? init.body.slice(0, 2000) : undefined,
@@ -259,7 +259,7 @@ export async function resolveChatSandboxRuntime(params: {
     if (isVercel && !resp.ok) {
       const cloned = resp.clone();
       const body = await cloned.text().catch(() => "<unreadable>");
-      lastVercelResponse = { status: resp.status, body: body.slice(0, 2000) };
+      debugCapture.response = { status: resp.status, body: body.slice(0, 2000) };
       console.error("[debug] vercel api error response:", { url, status: resp.status, body: body.slice(0, 2000) });
     }
     return resp;
@@ -301,13 +301,13 @@ export async function resolveChatSandboxRuntime(params: {
       cause: err?.cause,
       stack: err?.stack,
     });
-    console.error("[debug] last vercel api request:", lastVercelRequest);
-    console.error("[debug] last vercel api error response:", lastVercelResponse);
-    const reqInfo = lastVercelRequest
-      ? ` | req=${lastVercelRequest.method} ${lastVercelRequest.url.replace(/^https?:\/\/[^/]+/, "")}`
+    console.error("[debug] last vercel api request:", debugCapture.request);
+    console.error("[debug] last vercel api error response:", debugCapture.response);
+    const reqInfo = debugCapture.request
+      ? ` | req=${debugCapture.request.method} ${debugCapture.request.url.replace(/^https?:\/\/[^/]+/, "")}`
       : "";
-    const respInfo = lastVercelResponse
-      ? ` | resp=${lastVercelResponse.status}: ${lastVercelResponse.body}`
+    const respInfo = debugCapture.response
+      ? ` | resp=${debugCapture.response.status}: ${debugCapture.response.body}`
       : "";
     throw new Error(`connectSandbox failed: ${err?.name}: ${err?.message}${reqInfo}${respInfo}`, { cause: e });
   } finally {
