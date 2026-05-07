@@ -1,0 +1,188 @@
+name: Apply Sandbox Patch
+
+# Manual trigger only — fixes the upstream open-agents bug where `runtime` is
+# sent alongside `source: { type: "snapshot" }` causing Vercel API to return 400.
+#
+# What this does:
+#   Edits packages/sandbox/vercel/sandbox.ts to remove `runtime` from
+#   createBaseConfig and add it back ONLY for non-snapshot sources.
+#
+# This aligns with Vercel SDK type spec:
+#   type CreateSandboxParams = BaseCreateSandboxParams
+#     | (Omit<BaseCreateSandboxParams, "runtime" | "source"> & {
+#         source: { type: "snapshot"; snapshotId: string }
+#       });
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply patch
+        id: patch
+        run: |
+          set -euo pipefail
+          FILE="packages/sandbox/vercel/sandbox.ts"
+
+          if [ ! -f "$FILE" ]; then
+            echo "::error::File $FILE not found"
+            exit 1
+          fi
+
+          # Detect if patch already applied
+          if grep -q "// PATCH: runtime omitted from snapshot source" "$FILE"; then
+            echo "::notice::Patch already applied, nothing to do"
+            echo "applied=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Use Python for safe multi-line text replacement
+          python3 << 'PYEOF'
+          import re
+          from pathlib import Path
+
+          path = Path("packages/sandbox/vercel/sandbox.ts")
+          src = path.read_text()
+
+          old_block = '''    const createBaseConfig = {
+              ...(name ? { name } : {}),
+              resources: { vcpus },
+              timeout: sdkTimeout,
+              runtime,
+              persistent,
+              networkPolicy: buildGitHubCredentialBrokeringPolicy(githubToken),
+              ...(ports && { ports }),
+              ...(snapshotExpiration !== undefined && { snapshotExpiration }),
+            };
+
+            let sdk: VercelSandboxSDK;
+            if (restoreSnapshotId) {
+              sdk = await VercelSandboxSDK.create({
+                ...createBaseConfig,
+                source: { type: "snapshot", snapshotId: restoreSnapshotId },
+              });
+            } else if (baseSnapshotId) {
+              sdk = await VercelSandboxSDK.create({
+                ...createBaseConfig,
+                source: { type: "snapshot", snapshotId: baseSnapshotId },
+              });
+            } else if (source) {
+              sdk = await VercelSandboxSDK.create({
+                ...createBaseConfig,
+                source: {
+                  type: "git",
+                  url: source.url,
+                  ...(source.branch && { revision: source.branch }),
+                },
+              });
+            } else {
+              sdk = await VercelSandboxSDK.create(createBaseConfig);
+            }'''
+
+          new_block = '''    // PATCH: runtime omitted from snapshot source variant.
+            // Vercel API rejects { runtime, source: { type: "snapshot" } } with 400 because
+            // snapshots already carry runtime metadata. Per @vercel/sandbox SDK type:
+            //   CreateSandboxParams = BaseCreateSandboxParams
+            //     | (Omit<BaseCreateSandboxParams, "runtime" | "source"> & {
+            //         source: { type: "snapshot"; snapshotId: string }
+            //       });
+            const createBaseConfig = {
+              ...(name ? { name } : {}),
+              resources: { vcpus },
+              timeout: sdkTimeout,
+              persistent,
+              networkPolicy: buildGitHubCredentialBrokeringPolicy(githubToken),
+              ...(ports && { ports }),
+              ...(snapshotExpiration !== undefined && { snapshotExpiration }),
+            };
+
+            let sdk: VercelSandboxSDK;
+            if (restoreSnapshotId) {
+              sdk = await VercelSandboxSDK.create({
+                ...createBaseConfig,
+                source: { type: "snapshot", snapshotId: restoreSnapshotId },
+              });
+            } else if (baseSnapshotId) {
+              sdk = await VercelSandboxSDK.create({
+                ...createBaseConfig,
+                source: { type: "snapshot", snapshotId: baseSnapshotId },
+              });
+            } else if (source) {
+              sdk = await VercelSandboxSDK.create({
+                ...createBaseConfig,
+                runtime,
+                source: {
+                  type: "git",
+                  url: source.url,
+                  ...(source.branch && { revision: source.branch }),
+                },
+              });
+            } else {
+              sdk = await VercelSandboxSDK.create({ ...createBaseConfig, runtime });
+            }'''
+
+          if old_block not in src:
+              raise SystemExit(
+                  "ERROR: Expected source block not found. Has the upstream code changed? "
+                  "This patch was written for the original open-agents code; manual review needed."
+              )
+
+          new_src = src.replace(old_block, new_block, 1)
+          path.write_text(new_src)
+          print("✓ Patch applied successfully")
+          PYEOF
+
+          echo "applied=true" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        if: steps.patch.outputs.applied == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/sandbox/vercel/sandbox.ts
+          git commit -m "fix(sandbox): omit runtime when source is snapshot
+
+          Upstream open-agents code passes runtime: 'node22' alongside
+          source: { type: 'snapshot' } in Sandbox.create() payload. Vercel API
+          rejects this combination with 400 because snapshots carry their own
+          runtime metadata.
+
+          This patch:
+          - Removes runtime from shared createBaseConfig
+          - Adds runtime back only for git source and bare creation paths
+          - Aligns with @vercel/sandbox SDK type definition that omits runtime
+            in the snapshot source variant
+          
+          Without this fix, custom base snapshots cannot be used and chat
+          sessions fail with 'Workspace setup failed'."
+          git push origin main
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## Sandbox Patch Result"
+            echo ""
+            if [ "${{ steps.patch.outputs.applied }}" = "true" ]; then
+              echo "✅ **Patch applied and committed**"
+              echo ""
+              echo "Vercel will auto-deploy from main shortly."
+              echo ""
+              echo "### Next steps"
+              echo "1. Wait for Vercel deployment to be Ready"
+              echo "2. Test session creation on warp-xgen.vercel.app"
+            elif [ "${{ steps.patch.outcome }}" = "success" ]; then
+              echo "ℹ️ **Patch already applied** (no changes needed)"
+            else
+              echo "❌ **Patch failed** — check the 'Apply patch' step logs"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
