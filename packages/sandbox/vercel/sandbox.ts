@@ -535,17 +535,38 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
     // The SDK type Omit<BaseCreateSandboxParams, "runtime" | "source"> for
     // snapshot sources means `runtime` must not be sent — the snapshot carries
     // its own runtime and the Vercel API returns 400 if runtime is present.
+    function logSdkCreateError(err: unknown, context: string): void {
+      if (err && typeof err === "object" && "text" in err) {
+        const e = err as { text?: unknown; json?: unknown; message?: string };
+        console.error(
+          `[VercelSandbox] create failed (${context}) — API body:`,
+          e.text,
+          e.json,
+        );
+      }
+    }
+
     let sdk: VercelSandboxSDK;
     if (restoreSnapshotId) {
-      sdk = await VercelSandboxSDK.create({
-        ...createSharedConfig,
-        source: { type: "snapshot", snapshotId: restoreSnapshotId },
-      });
+      try {
+        sdk = await VercelSandboxSDK.create({
+          ...createSharedConfig,
+          source: { type: "snapshot", snapshotId: restoreSnapshotId },
+        });
+      } catch (err) {
+        logSdkCreateError(err, `restoreSnapshotId=${restoreSnapshotId}`);
+        throw err;
+      }
     } else if (baseSnapshotId) {
-      sdk = await VercelSandboxSDK.create({
-        ...createSharedConfig,
-        source: { type: "snapshot", snapshotId: baseSnapshotId },
-      });
+      try {
+        sdk = await VercelSandboxSDK.create({
+          ...createSharedConfig,
+          source: { type: "snapshot", snapshotId: baseSnapshotId },
+        });
+      } catch (err) {
+        logSdkCreateError(err, `baseSnapshotId=${baseSnapshotId}`);
+        throw err;
+      }
     } else if (source) {
       sdk = await VercelSandboxSDK.create({
         ...createSharedConfig,
