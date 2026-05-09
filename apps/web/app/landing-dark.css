@@ -1,5 +1,5 @@
 /* WARP-XGEN Dark Landing Page — imported in globals.css */
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&display=swap");
 
 .warp-dark-theme {
   background-color: #050505;
@@ -10,7 +10,7 @@
 }
 
 .warp-mono {
-  font-family: 'Fira Code', 'Geist Mono', ui-monospace, monospace;
+  font-family: "Fira Code", "Geist Mono", ui-monospace, monospace;
 }
 
 .warp-grid-bg {
@@ -50,14 +50,18 @@
   background: transparent;
   color: #00f0ff;
   border: 1px solid #00f0ff;
-  box-shadow: 0 0 10px rgba(0, 240, 255, 0.2), inset 0 0 10px rgba(0, 240, 255, 0.1);
+  box-shadow:
+    0 0 10px rgba(0, 240, 255, 0.2),
+    inset 0 0 10px rgba(0, 240, 255, 0.1);
   transition: all 0.2s ease-in-out;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
 .warp-glow-btn:hover {
   background: rgba(0, 240, 255, 0.1);
-  box-shadow: 0 0 20px rgba(0, 240, 255, 0.4), inset 0 0 15px rgba(0, 240, 255, 0.2);
+  box-shadow:
+    0 0 20px rgba(0, 240, 255, 0.4),
+    inset 0 0 15px rgba(0, 240, 255, 0.2);
   text-shadow: 0 0 5px #00f0ff;
 }
 

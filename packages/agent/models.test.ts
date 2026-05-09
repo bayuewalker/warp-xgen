@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ProviderOptionsByProvider } from "./models";
 
 const createGatewayCalls: Array<Record<string, unknown>> = [];
@@ -29,6 +29,20 @@ const {
   mergeProviderOptions,
   shouldApplyOpenAIReasoningDefaults,
 } = await import("./models");
+
+const originalOpenRouterApiKey = process.env.OPENROUTER_API_KEY;
+
+beforeEach(() => {
+  delete process.env.OPENROUTER_API_KEY;
+});
+
+afterEach(() => {
+  if (originalOpenRouterApiKey === undefined) {
+    delete process.env.OPENROUTER_API_KEY;
+  } else {
+    process.env.OPENROUTER_API_KEY = originalOpenRouterApiKey;
+  }
+});
 
 describe("shouldApplyOpenAIReasoningDefaults", () => {
   test("returns true for existing GPT-5 variants", () => {
@@ -155,6 +169,39 @@ describe("getProviderOptionsForModel", () => {
       },
     });
   });
+
+  test("strips provider-specific defaults when OPENROUTER_API_KEY is set", () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-test";
+
+    expect(getProviderOptionsForModel("anthropic/claude-sonnet-4.6")).toEqual(
+      {},
+    );
+    expect(getProviderOptionsForModel("openai/gpt-5.4")).toEqual({});
+    expect(getProviderOptionsForModel("openai/gpt-4o")).toEqual({});
+  });
+
+  test("preserves explicit caller overrides under OpenRouter", () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-test";
+
+    const result = getProviderOptionsForModel("anthropic/claude-sonnet-4.6", {
+      openrouter: { reasoning: { effort: "high" } },
+    });
+
+    expect(result).toEqual({
+      openrouter: { reasoning: { effort: "high" } },
+    });
+  });
+
+  test("does not strip defaults when OPENROUTER_API_KEY is whitespace only", () => {
+    process.env.OPENROUTER_API_KEY = "   ";
+
+    expect(getProviderOptionsForModel("anthropic/claude-sonnet-4.6")).toEqual({
+      anthropic: {
+        effort: "medium",
+        thinking: { type: "adaptive" },
+      },
+    });
+  });
 });
 
 describe("mergeProviderOptions", () => {
@@ -241,15 +288,15 @@ describe("mergeProviderOptions", () => {
 });
 
 describe("gateway attribution headers", () => {
-  test("sends default attribution headers", () => {
+  test("sends default warp-xgen attribution headers", () => {
     createGatewayCalls.length = 0;
     gateway("anthropic/claude-sonnet-4.6" as never);
 
     expect(createGatewayCalls).toEqual([
       {
         headers: {
-          "http-referer": "https://open-agents.dev",
-          "x-title": "Open Agents",
+          "http-referer": "https://warp-xgen.vercel.app",
+          "x-title": "WARP-XGEN",
         },
       },
     ]);
@@ -283,8 +330,87 @@ describe("gateway attribution headers", () => {
         baseURL: "https://custom.api",
         apiKey: "sk-test",
         headers: {
-          "http-referer": "https://open-agents.dev",
-          "x-title": "Open Agents",
+          "http-referer": "https://warp-xgen.vercel.app",
+          "x-title": "WARP-XGEN",
+        },
+      },
+    ]);
+  });
+});
+
+describe("gateway OpenRouter env switch", () => {
+  test("routes through OpenRouter when OPENROUTER_API_KEY is set", () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-test-key";
+    createGatewayCalls.length = 0;
+    gateway("anthropic/claude-sonnet-4.6" as never);
+
+    expect(createGatewayCalls).toEqual([
+      {
+        baseURL: "https://openrouter.ai/api/v1",
+        apiKey: "sk-or-test-key",
+        headers: {
+          "http-referer": "https://warp-xgen.vercel.app",
+          "x-title": "WARP-XGEN",
+        },
+      },
+    ]);
+  });
+
+  test("trims surrounding whitespace from OPENROUTER_API_KEY", () => {
+    process.env.OPENROUTER_API_KEY = "  sk-or-padded  ";
+    createGatewayCalls.length = 0;
+    gateway("anthropic/claude-sonnet-4.6" as never);
+
+    expect(createGatewayCalls[0]).toMatchObject({
+      apiKey: "sk-or-padded",
+      baseURL: "https://openrouter.ai/api/v1",
+    });
+  });
+
+  test("falls back to AI SDK defaults when OPENROUTER_API_KEY is unset", () => {
+    delete process.env.OPENROUTER_API_KEY;
+    createGatewayCalls.length = 0;
+    gateway("anthropic/claude-sonnet-4.6" as never);
+
+    expect(createGatewayCalls).toEqual([
+      {
+        headers: {
+          "http-referer": "https://warp-xgen.vercel.app",
+          "x-title": "WARP-XGEN",
+        },
+      },
+    ]);
+  });
+
+  test("falls back to AI SDK defaults when OPENROUTER_API_KEY is empty or whitespace", () => {
+    process.env.OPENROUTER_API_KEY = "   ";
+    createGatewayCalls.length = 0;
+    gateway("anthropic/claude-sonnet-4.6" as never);
+
+    expect(createGatewayCalls).toEqual([
+      {
+        headers: {
+          "http-referer": "https://warp-xgen.vercel.app",
+          "x-title": "WARP-XGEN",
+        },
+      },
+    ]);
+  });
+
+  test("explicit GatewayConfig wins over OPENROUTER_API_KEY env", () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-test-key";
+    createGatewayCalls.length = 0;
+    gateway("anthropic/claude-sonnet-4.6" as never, {
+      config: { baseURL: "https://custom.api", apiKey: "sk-explicit" },
+    });
+
+    expect(createGatewayCalls).toEqual([
+      {
+        baseURL: "https://custom.api",
+        apiKey: "sk-explicit",
+        headers: {
+          "http-referer": "https://warp-xgen.vercel.app",
+          "x-title": "WARP-XGEN",
         },
       },
     ]);

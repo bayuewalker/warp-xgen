@@ -63,9 +63,7 @@ async function runStep(
   });
 
   if (result.exitCode !== 0) {
-    throw new Error(
-      `Step "${label}" failed with exit code ${result.exitCode}`,
-    );
+    throw new Error(`Step "${label}" failed with exit code ${result.exitCode}`);
   }
   console.log(`  ✓ ${label} done`);
 }
@@ -84,7 +82,9 @@ async function main(): Promise<void> {
   console.log(`Chromium: ${includeChromium ? "yes" : "no (minimal snapshot)"}`);
   console.log("");
 
-  console.log(`→ Creating fresh sandbox (persistent: true, runtime: ${DEFAULT_RUNTIME})...`);
+  console.log(
+    `→ Creating fresh sandbox (persistent: true, runtime: ${DEFAULT_RUNTIME})...`,
+  );
   const sandbox = await Sandbox.create({
     teamId,
     projectId,
@@ -102,7 +102,7 @@ async function main(): Promise<void> {
   if (sandbox.runtime && sandbox.runtime !== DEFAULT_RUNTIME) {
     throw new Error(
       `Runtime mismatch: requested "${DEFAULT_RUNTIME}" but got "${sandbox.runtime}". ` +
-      `This snapshot will not be loadable by warp-xgen production runtime.`,
+        `This snapshot will not be loadable by warp-xgen production runtime.`,
     );
   }
 
@@ -110,59 +110,46 @@ async function main(): Promise<void> {
 
   try {
     // Refresh package metadata once
-    await runStep(
-      sandbox,
-      "dnf metadata refresh",
-      "sudo",
-      ["dnf", "makecache", "--refresh"],
-    );
+    await runStep(sandbox, "dnf metadata refresh", "sudo", [
+      "dnf",
+      "makecache",
+      "--refresh",
+    ]);
 
     // jq — required by open-agents shell utils & skill metadata
-    await runStep(
-      sandbox,
-      "Install jq",
-      "sudo",
-      ["dnf", "install", "-y", "jq"],
-    );
+    await runStep(sandbox, "Install jq", "sudo", [
+      "dnf",
+      "install",
+      "-y",
+      "jq",
+    ]);
 
     // bun — primary package manager inside sandboxes
-    await runStep(
-      sandbox,
-      "Install bun",
-      "bash",
-      [
-        "-c",
-        "curl -fsSL https://bun.sh/install | bash && sudo ln -sf $HOME/.bun/bin/bun /usr/local/bin/bun && bun --version",
-      ],
-    );
+    await runStep(sandbox, "Install bun", "bash", [
+      "-c",
+      "curl -fsSL https://bun.sh/install | bash && sudo ln -sf $HOME/.bun/bin/bun /usr/local/bin/bun && bun --version",
+    ]);
 
     // Optional: chromium + agent-browser
     if (includeChromium) {
-      await runStep(
-        sandbox,
-        "Install chromium dependencies",
-        "sudo",
-        [
-          "dnf",
-          "install",
-          "-y",
-          "chromium",
-          "nss",
-          "alsa-lib",
-          "atk",
-          "cups-libs",
-          "libdrm",
-          "libxkbcommon",
-          "mesa-libgbm",
-        ],
-      );
+      await runStep(sandbox, "Install chromium dependencies", "sudo", [
+        "dnf",
+        "install",
+        "-y",
+        "chromium",
+        "nss",
+        "alsa-lib",
+        "atk",
+        "cups-libs",
+        "libdrm",
+        "libxkbcommon",
+        "mesa-libgbm",
+      ]);
 
-      await runStep(
-        sandbox,
-        "Install agent-browser",
-        "bash",
-        ["-c", "npm install -g agent-browser && agent-browser --version"],
-      );
+      await runStep(sandbox, "Install agent-browser", "bash", [
+        "-c",
+        "npm install -g agent-browser && agent-browser --version",
+      ]);
     }
 
     console.log("\n→ Capturing snapshot (no expiration)...");
@@ -200,6 +187,8 @@ async function main(): Promise<void> {
 
 main().catch((error) => {
   console.error("\n✗ FAILED:");
-  console.error(error instanceof Error ? error.stack ?? error.message : error);
+  console.error(
+    error instanceof Error ? (error.stack ?? error.message) : error,
+  );
   process.exit(1);
 });

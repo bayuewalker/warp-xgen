@@ -161,7 +161,7 @@ jobs:
           - Adds runtime back only for git source and bare creation paths
           - Aligns with @vercel/sandbox SDK type definition that omits runtime
             in the snapshot source variant
-          
+
           Without this fix, custom base snapshots cannot be used and chat
           sessions fail with 'Workspace setup failed'."
           git push origin main

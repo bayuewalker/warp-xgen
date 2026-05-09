@@ -114,8 +114,10 @@ describe("/api/settings/preferences", () => {
       preferences: typeof preferencesState;
     };
 
-    expect(body.preferences.defaultModelId).toBe("openai/gpt-5.4");
-    expect(body.preferences.defaultSubagentModelId).toBe("openai/gpt-5.4");
+    expect(body.preferences.defaultModelId).toBe("anthropic/claude-sonnet-4.6");
+    expect(body.preferences.defaultSubagentModelId).toBe(
+      "anthropic/claude-sonnet-4.6",
+    );
     expect(body.preferences.modelVariants).toEqual([]);
   });
 
