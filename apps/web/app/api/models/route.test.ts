@@ -262,9 +262,9 @@ describe("/api/models context window enrichment", () => {
       response: {
         models: [
           {
-            id: "openai/gpt-5.4",
-            name: "GPT 5.4",
-            description: "Latest GPT model",
+            id: "anthropic/claude-sonnet-4.6",
+            name: "Claude Sonnet 4.6",
+            description: "Latest Sonnet model",
             modelType: "language",
           },
           {
@@ -297,9 +297,9 @@ describe("/api/models context window enrichment", () => {
 
     expect(body.models).toEqual([
       {
-        id: "openai/gpt-5.4",
-        name: "GPT 5.4",
-        description: "Latest GPT model",
+        id: "anthropic/claude-sonnet-4.6",
+        name: "Claude Sonnet 4.6",
+        description: "Latest Sonnet model",
         modelType: "language",
       },
     ]);

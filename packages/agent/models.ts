@@ -101,6 +101,23 @@ export interface GatewayOptions {
 
 export type { GatewayModelId, LanguageModel, JSONValue };
 
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+
+function resolveDefaultGatewayConfig(): GatewayConfig | undefined {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) {
+    return undefined;
+  }
+  return {
+    baseURL: OPENROUTER_BASE_URL,
+    apiKey,
+  };
+}
+
+function isOpenRouterActive(): boolean {
+  return Boolean(process.env.OPENROUTER_API_KEY?.trim());
+}
+
 export function shouldApplyOpenAIReasoningDefaults(modelId: string): boolean {
   return modelId.startsWith("openai/gpt-5");
 }
@@ -113,6 +130,19 @@ export function getProviderOptionsForModel(
   modelId: string,
   providerOptionsOverrides?: ProviderOptionsByProvider,
 ): ProviderOptionsByProvider {
+  // OpenRouter does not accept the OpenAI Responses API options (`store`,
+  // `reasoningSummary`, `include`, `textVerbosity`) or Anthropic adaptive
+  // thinking (`effort`, `thinking.adaptive`) that we inject below. Skip the
+  // provider-specific defaults entirely when routing through OpenRouter and
+  // only honor explicit overrides from the caller.
+  // TODO(openrouter-v2): Translate Anthropic `effort` / `thinking.adaptive`
+  // and OpenAI reasoning options into OpenRouter's `reasoning` schema
+  // (https://openrouter.ai/docs/use-cases/reasoning-tokens) so we don't lose
+  // thinking-mode behavior when routing through OpenRouter.
+  if (isOpenRouterActive()) {
+    return providerOptionsOverrides ?? {};
+  }
+
   const defaultProviderOptions: ProviderOptionsByProvider = {};
 
   // Apply anthropic defaults
@@ -173,11 +203,17 @@ export function gateway(
   modelId: GatewayModelId,
   options: GatewayOptions = {},
 ): LanguageModel {
-  const { config, providerOptionsOverrides, appName, appUrl } = options;
+  const {
+    config: explicitConfig,
+    providerOptionsOverrides,
+    appName,
+    appUrl,
+  } = options;
+  const config = explicitConfig ?? resolveDefaultGatewayConfig();
 
   const attributionHeaders = {
-    "http-referer": appUrl ?? "https://open-agents.dev",
-    "x-title": appName ?? "Open Agents",
+    "http-referer": appUrl ?? "https://warp-xgen.vercel.app",
+    "x-title": appName ?? "WARP-XGEN",
   };
 
   const baseGateway = config

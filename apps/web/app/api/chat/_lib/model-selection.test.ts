@@ -45,20 +45,45 @@ describe("resolveChatModelSelection", () => {
     });
   });
 
-  test("resolves built-in OpenAI variants with store false", () => {
+  test("falls back to default when a built-in variant resolves to a disabled model", () => {
+    const originalWarn = console.warn;
+    const warnings: unknown[][] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+
+    try {
+      const selection = resolveChatModelSelection({
+        selectedModelId: "variant:builtin:gpt-5.4-xhigh",
+        modelVariants: BUILT_IN_VARIANTS,
+        missingVariantLabel: "Selected model variant",
+      });
+
+      expect(selection).toEqual({
+        id: APP_DEFAULT_MODEL_ID,
+      });
+      expect(warnings).toEqual([
+        [
+          'Selected model variant "variant:builtin:gpt-5.4-xhigh" resolves to disabled model "openai/gpt-5.4". Falling back to default model.',
+        ],
+      ]);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  test("resolves built-in Anthropic variants", () => {
     const selection = resolveChatModelSelection({
-      selectedModelId: "variant:builtin:gpt-5.4-xhigh",
+      selectedModelId: "variant:builtin:claude-opus-4.6-high",
       modelVariants: BUILT_IN_VARIANTS,
       missingVariantLabel: "Selected model variant",
     });
 
     expect(selection).toEqual({
-      id: "openai/gpt-5.4",
+      id: "anthropic/claude-opus-4.6",
       providerOptionsOverrides: {
-        openai: {
-          reasoningEffort: "xhigh",
-          reasoningSummary: "auto",
-          store: false,
+        anthropic: {
+          effort: "high",
         },
       },
     });
