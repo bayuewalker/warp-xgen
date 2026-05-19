@@ -6,6 +6,7 @@ import {
   type JSONValue,
   type LanguageModel,
 } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
 import type { AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
 import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 
@@ -103,17 +104,6 @@ export type { GatewayModelId, LanguageModel, JSONValue };
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
-function resolveDefaultGatewayConfig(): GatewayConfig | undefined {
-  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-  if (!apiKey) {
-    return undefined;
-  }
-  return {
-    baseURL: OPENROUTER_BASE_URL,
-    apiKey,
-  };
-}
-
 function isOpenRouterActive(): boolean {
   return Boolean(process.env.OPENROUTER_API_KEY?.trim());
 }
@@ -209,20 +199,44 @@ export function gateway(
     appName,
     appUrl,
   } = options;
-  const config = explicitConfig ?? resolveDefaultGatewayConfig();
 
   const attributionHeaders = {
-    "http-referer": appUrl ?? "https://warp-xgen.vercel.app",
-    "x-title": appName ?? "WARP-XGEN",
+    "HTTP-Referer": appUrl ?? "https://warp-xgen.vercel.app",
+    "X-Title": appName ?? "WARP-XGEN",
   };
+
+  // When OpenRouter is active and no explicit config override, use createOpenAI
+  // (OpenAI-compatible) instead of createGateway (Vercel AI Gateway-specific).
+  // OpenRouter exposes an OpenAI-compatible /v1/chat/completions endpoint and
+  // uses the same provider/model-id format (e.g. "anthropic/claude-sonnet-4.6").
+  if (isOpenRouterActive() && !explicitConfig) {
+    const apiKey = process.env.OPENROUTER_API_KEY!.trim();
+    const openrouter = createOpenAI({
+      baseURL: OPENROUTER_BASE_URL,
+      apiKey,
+      headers: attributionHeaders,
+      compatibility: "compatible",
+    });
+    return openrouter(modelId as string);
+  }
+
+  const config = explicitConfig;
 
   const baseGateway = config
     ? createGateway({
         baseURL: config.baseURL,
         apiKey: config.apiKey,
-        headers: attributionHeaders,
+        headers: {
+          "http-referer": appUrl ?? "https://warp-xgen.vercel.app",
+          "x-title": appName ?? "WARP-XGEN",
+        },
       })
-    : createGateway({ headers: attributionHeaders });
+    : createGateway({
+        headers: {
+          "http-referer": appUrl ?? "https://warp-xgen.vercel.app",
+          "x-title": appName ?? "WARP-XGEN",
+        },
+      });
 
   let model: LanguageModel = baseGateway(modelId);
 

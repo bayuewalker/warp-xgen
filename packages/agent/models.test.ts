@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ProviderOptionsByProvider } from "./models";
 
 const createGatewayCalls: Array<Record<string, unknown>> = [];
+const createOpenAICalls: Array<Record<string, unknown>> = [];
 
 mock.module("ai", () => {
   const gateway = (modelId: string) => ({ modelId });
@@ -16,6 +17,16 @@ mock.module("ai", () => {
     }),
     gateway,
     wrapLanguageModel: ({ model }: { model: unknown }) => model,
+  };
+});
+
+mock.module("@ai-sdk/openai", () => {
+  const model = (modelId: string) => ({ modelId });
+  return {
+    createOpenAI: (settings?: Record<string, unknown>) => {
+      createOpenAICalls.push(settings ?? {});
+      return model;
+    },
   };
 });
 
@@ -34,6 +45,7 @@ const originalOpenRouterApiKey = process.env.OPENROUTER_API_KEY;
 
 beforeEach(() => {
   delete process.env.OPENROUTER_API_KEY;
+  createOpenAICalls.length = 0;
 });
 
 afterEach(() => {
@@ -344,14 +356,17 @@ describe("gateway OpenRouter env switch", () => {
     createGatewayCalls.length = 0;
     gateway("anthropic/claude-sonnet-4.6" as never);
 
-    expect(createGatewayCalls).toEqual([
+    // OpenRouter path uses createOpenAI (not createGateway)
+    expect(createGatewayCalls).toEqual([]);
+    expect(createOpenAICalls).toEqual([
       {
         baseURL: "https://openrouter.ai/api/v1",
         apiKey: "sk-or-test-key",
         headers: {
-          "http-referer": "https://warp-xgen.vercel.app",
-          "x-title": "WARP-XGEN",
+          "HTTP-Referer": "https://warp-xgen.vercel.app",
+          "X-Title": "WARP-XGEN",
         },
+        compatibility: "compatible",
       },
     ]);
   });
@@ -361,7 +376,7 @@ describe("gateway OpenRouter env switch", () => {
     createGatewayCalls.length = 0;
     gateway("anthropic/claude-sonnet-4.6" as never);
 
-    expect(createGatewayCalls[0]).toMatchObject({
+    expect(createOpenAICalls[0]).toMatchObject({
       apiKey: "sk-or-padded",
       baseURL: "https://openrouter.ai/api/v1",
     });
