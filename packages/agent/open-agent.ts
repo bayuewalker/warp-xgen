@@ -48,7 +48,7 @@ const callOptionsSchema = z.object({
 
 export type OpenAgentCallOptions = z.infer<typeof callOptionsSchema>;
 
-export const defaultModelLabel = "anthropic/claude-sonnet-4.6" as const;
+export const defaultModelLabel = "anthropic/claude-3.5-sonnet" as const;
 export const defaultModel = gateway(defaultModelLabel);
 
 function normalizeAgentModelSelection(
