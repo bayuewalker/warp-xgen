@@ -6,6 +6,7 @@ import {
   type JSONValue,
   type LanguageModel,
 } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
 import type { AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
 import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 
@@ -130,13 +131,13 @@ export function getProviderOptionsForModel(
   modelId: string,
   providerOptionsOverrides?: ProviderOptionsByProvider,
 ): ProviderOptionsByProvider {
-  // OpenRouter does not accept the OpenAI Responses API options (`store`,
-  // `reasoningSummary`, `include`, `textVerbosity`) or Anthropic adaptive
-  // thinking (`effort`, `thinking.adaptive`) that we inject below. Skip the
+  // OpenRouter does not accept the OpenAI Responses API options (store,
+  // reasoningSummary, include, textVerbosity) or Anthropic adaptive
+  // thinking (effort, thinking.adaptive) that we inject below. Skip the
   // provider-specific defaults entirely when routing through OpenRouter and
   // only honor explicit overrides from the caller.
-  // TODO(openrouter-v2): Translate Anthropic `effort` / `thinking.adaptive`
-  // and OpenAI reasoning options into OpenRouter's `reasoning` schema
+  // TODO(openrouter-v2): Translate Anthropic effort / thinking.adaptive
+  // and OpenAI reasoning options into OpenRouter's reasoning schema
   // (https://openrouter.ai/docs/use-cases/reasoning-tokens) so we don't lose
   // thinking-mode behavior when routing through OpenRouter.
   if (isOpenRouterActive()) {
@@ -160,8 +161,8 @@ export function getProviderOptionsForModel(
   }
 
   // Apply OpenAI defaults for all GPT-5 variants to expose encrypted reasoning content.
-  // This avoids Responses API failures when `store: false`, e.g.:
-  // "Item with id 'rs_...' not found. Items are not persisted when `store` is set to false."
+  // This avoids Responses API failures when store: false, e.g.:
+  // "Item with id 'rs_...' not found. Items are not persisted when store is set to false."
   if (shouldApplyOpenAIReasoningDefaults(modelId)) {
     defaultProviderOptions.openai = mergeRecords(
       defaultProviderOptions.openai ?? {},
@@ -212,19 +213,29 @@ export function gateway(
   const config = explicitConfig ?? resolveDefaultGatewayConfig();
 
   const attributionHeaders = {
-    "http-referer": appUrl ?? "https://warp-xgen.vercel.app",
-    "x-title": appName ?? "WARP-XGEN",
+    "HTTP-Referer": appUrl ?? "https://warp-xgen.vercel.app",
+    "X-Title": appName ?? "WARP-XGEN",
   };
 
-  const baseGateway = config
-    ? createGateway({
-        baseURL: config.baseURL,
-        apiKey: config.apiKey,
-        headers: attributionHeaders,
-      })
-    : createGateway({ headers: attributionHeaders });
+  let model: LanguageModel;
 
-  let model: LanguageModel = baseGateway(modelId);
+  if (config?.baseURL === OPENROUTER_BASE_URL) {
+    const openrouter = createOpenAI({
+      baseURL: config.baseURL,
+      apiKey: config.apiKey,
+      headers: attributionHeaders,
+    });
+    model = openrouter(modelId);
+  } else {
+    const baseGateway = config
+      ? createGateway({
+          baseURL: config.baseURL,
+          apiKey: config.apiKey,
+          headers: attributionHeaders,
+        })
+      : createGateway({ headers: attributionHeaders });
+    model = baseGateway(modelId);
+  }
 
   const providerOptions = getProviderOptionsForModel(
     modelId,
