@@ -1,6 +1,7 @@
 @import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./landing-dark.css";
 
 @source "../node_modules/streamdown/dist/*.js";
 
@@ -442,6 +443,3 @@
     transform: scaleX(1);
   }
 }
-
-/* WARP-XGEN Dark Landing */
-@import "./landing-dark.css";
