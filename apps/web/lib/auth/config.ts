@@ -48,6 +48,12 @@ function getAuthBaseURLFallback(): string | undefined {
 function getAllowedAuthHosts(): string[] {
   const hosts = new Set<string>(["localhost:3000", "127.0.0.1:3000"]);
 
+  // In development, allow all hosts to support preview URLs
+  if (process.env.NODE_ENV === "development") {
+    hosts.add("*");
+    return [...hosts];
+  }
+
   for (const value of [
     process.env.BETTER_AUTH_URL,
     process.env.VERCEL_URL,
