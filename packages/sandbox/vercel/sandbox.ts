@@ -521,27 +521,33 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
     // Calculate SDK timeout with buffer for beforeStop hook.
     const sdkTimeout = effectiveTimeout + TIMEOUT_BUFFER_MS;
 
-    const createBaseConfig = {
+    // Base config shared across all create paths. Note: `runtime` must be
+    // omitted for snapshot-sourced sandboxes because the SDK union type has
+    // `runtime?: never` in that branch.
+    const createBaseConfigWithoutRuntime = {
       ...(name ? { name } : {}),
       resources: { vcpus },
       timeout: sdkTimeout,
-      runtime,
       persistent,
       networkPolicy: buildGitHubCredentialBrokeringPolicy(githubToken),
       ...(ports && { ports }),
       ...(snapshotExpiration !== undefined && { snapshotExpiration }),
     };
+    const createBaseConfig = {
+      ...createBaseConfigWithoutRuntime,
+      runtime,
+    };
 
     let sdk: VercelSandboxSDK;
     if (restoreSnapshotId) {
       sdk = await VercelSandboxSDK.create({
-        ...createBaseConfig,
-        source: { type: "snapshot", snapshotId: restoreSnapshotId },
+        ...createBaseConfigWithoutRuntime,
+        source: { type: "snapshot" as const, snapshotId: restoreSnapshotId },
       });
     } else if (baseSnapshotId) {
       sdk = await VercelSandboxSDK.create({
-        ...createBaseConfig,
-        source: { type: "snapshot", snapshotId: baseSnapshotId },
+        ...createBaseConfigWithoutRuntime,
+        source: { type: "snapshot" as const, snapshotId: baseSnapshotId },
       });
     } else if (source) {
       sdk = await VercelSandboxSDK.create({

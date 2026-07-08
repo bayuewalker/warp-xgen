@@ -218,7 +218,6 @@ export function gateway(
       baseURL: OPENROUTER_BASE_URL,
       apiKey,
       headers: attributionHeaders,
-      compatibility: "compatible",
     });
     return openrouter(modelId as string);
   }
